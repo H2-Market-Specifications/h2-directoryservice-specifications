@@ -1,0 +1,1030 @@
+$schema: https://json-schema.org/draft/2020-12/schema
+$id: urn:h2:directory:record:v1
+title: DirectoryRecord des zentralen Verzeichnisdienstes
+$comment: Kanonisches Schema des vollständigen Verzeichniseintrags und der öffentlichen Schreibobjekte. Response-Objekte sind
+  ausdrücklich erweiterbar; Client-Schreibobjekte sind geschlossen. In Version 1 existiert keine eigenständige dauerhaft gespeicherte
+  Record-Signatur.
+$ref: '#/$defs/DirectoryRecord'
+x-h2-semantic-rules:
+  noPersistentRecordSignature: DirectoryRecord enthält in Version 1 keine eigenständige Record-Signatur und kein Zertifikat.
+    Die JWS-Pflichten der HTTP-Nachrichten und WebSocket-Client-Nachrichten bleiben bestehen.
+  environment: PROD und TEST besitzen unabhängige Bestände; targetUrl muss dieselbe Umgebung bezeichnen.
+  authorization: GET ist für jeden erfolgreich authentisierten EMT.API-Marktpartner zulässig. PUT, PATCH und DELETE sind nur
+    für die eigene providerId zulässig. Governance-Änderungen sind intern.
+  catalog: serviceName, serviceDescription und Lifecycle-Daten stammen aus dem API-Katalog. allowedRoles, capabilities und
+    supportedHttpMethods sind zulässige Teilmengen.
+  dataOwnership:
+    apiGovernance:
+    - apiId
+    - majorVersion
+    - serviceName
+    - serviceDescription
+    - lifecycleStatus
+    - deprecatedSince
+    - sunsetAt
+    - replacement
+    marketPartner:
+    - allowedRoles
+    - communicationParameters
+    - capabilities
+    - contacts
+    - validity
+    - availabilityMonitoring
+    directoryService:
+    - revision
+    - operationalStatus
+    - operationalStatusSource
+    - operationalStatusChangedAt
+    - operationalStatusReason
+    - operationalStatusDescription
+    - operationalStatusExpectedEnd
+    - operationalStatusReference
+    - manualOverride
+    - availabilityMonitoringStatus
+  initialState: Neue und wiederangelegte nicht-retired Einträge beginnen mit down/initialRegistration. Bei retired gelten
+    lifecycleRetired/down und monitoring inactive.
+  effectiveOperationalStatusPriority:
+  - lifecycleRetired
+  - activeManualOverride
+  - automaticOrInitialBaseStatus
+  activeOverrideConsistency: Root-Status und Statusmetadaten müssen den Werten des aktiven manualOverride entsprechen.
+  scheduledOverride: Nur maintenance; bis zur Aktivierung ohne Wirkung auf den Root-Status. Anlage/Änderung/Aufhebung erzeugt
+    serviceInfoChanged, sofern kein wirksamer Status mitgeändert wird.
+  scheduledActivation: Bei maintenanceWindow.start wird der Override atomar active und der Root-Status maintenance; genau
+    eine neue Revision und statusChanged.
+  overrideEnd: Bei clear oder validUntil wird der Override entfernt und der Status aus Lifecycle und aktuellem Monitoring-/Initialzustand
+    neu bewertet.
+  timeOrdering:
+  - validity.validFrom < validity.validUntil
+  - deprecatedSince < sunsetAt
+  - maintenanceWindow.start < maintenanceWindow.end
+  maintenanceEnd: manualOverride.validUntil = maintenanceWindow.end
+  noOp: Unveränderter PUT und clear ohne vorhandenen Override liefern 200 mit unverändertem Record/ETag; keine Revision, kein
+    Zustandsaudit, kein Outbox-Ereignis und keine Notification. Technischer Request und Idempotenzresultat werden protokolliert.
+  atomicity: Bei tatsächlicher Änderung sind Idempotenzreservierung, Vorbedingung, Berechtigung/Signatur, Zustandsänderung,
+    Revision, Audit, Ergebnis und Outbox atomar.
+  maxDirectoryRecordUtf8Bytes: 921600
+$defs:
+  providerId:
+    type: string
+    pattern: ^[0-9]{13}$
+    description: 13-stellige numerische Marktpartner-ID.
+  apiId:
+    type: string
+    pattern: ^H2API[0-9]{5}$
+    description: Marktweit eindeutige API-Kennung gemäß API-Katalog.
+  majorVersion:
+    type: integer
+    minimum: 1
+    maximum: 2147483647
+    description: Hauptversion des fachlichen API-Webdienstes ohne Präfix v.
+  revision:
+    type: integer
+    minimum: 1
+    maximum: 9007199254740991
+    description: Streng monoton steigende Revision des Verzeichnisschlüssels.
+  timestampUtc:
+    type: string
+    format: date-time
+    pattern: Z$
+    description: RFC-3339-Zeitpunkt in UTC mit dem Suffix Z.
+  reasonCode:
+    type: string
+    pattern: ^[a-z][a-zA-Z0-9]{2,63}$
+    description: Maschinenlesbarer lowerCamelCase-Code.
+  capabilityCode:
+    type: string
+    pattern: ^[a-z][a-zA-Z0-9]{2,63}$
+    description: Im API-Katalog für apiId und majorVersion registrierter Capability-Code.
+  marketRole:
+    type: string
+    enum:
+    - HydrogenGridOperator
+    - HydrogenMarketAreaManager
+    - BalanceGroupResponsibleParty
+    - TransportCustomer
+    - DataHub
+    - StorageOperator
+  lifecycleStatus:
+    type: string
+    enum:
+    - experimental
+    - beta
+    - active
+    - deprecated
+    - sunset
+    - retired
+  operationalStatus:
+    type: string
+    enum:
+    - operational
+    - degraded
+    - maintenance
+    - down
+  httpMethod:
+    type: string
+    enum:
+    - GET
+    - POST
+    - PUT
+    - PATCH
+    - DELETE
+  replacement:
+    oneOf:
+    - type: object
+      additionalProperties: true
+      required:
+      - kind
+      - apiId
+      - majorVersion
+      properties:
+        kind:
+          const: successor
+        apiId:
+          $ref: '#/$defs/apiId'
+        majorVersion:
+          $ref: '#/$defs/majorVersion'
+    - type: object
+      additionalProperties: true
+      required:
+      - kind
+      properties:
+        kind:
+          const: none
+      not:
+        anyOf:
+        - required:
+          - apiId
+        - required:
+          - majorVersion
+    description: Nachfolger der abgekündigten API-Version oder ausdrückliche ersatzlose Abkündigung.
+  communicationParameters:
+    type: object
+    additionalProperties: true
+    required:
+    - targetUrl
+    - protocol
+    - supportedHttpMethods
+    properties:
+      targetUrl:
+        type: string
+        format: uri
+        pattern: ^https://[^?#]+$
+        maxLength: 2048
+        not:
+          pattern: /$
+        x-h2-uri-host: dnsName
+        x-h2-uri-userinfo: forbidden
+        x-h2-uri-ip-literal: forbidden
+        x-h2-uri-query: forbidden
+        x-h2-uri-fragment: forbidden
+        x-h2-uri-trailing-slash: forbidden
+        description: Genau eine absolute HTTPS-Zieladresse. Benutzerinformationen, IP-Literale, Query- und Fragment-Komponenten
+          sowie ein abschließender Schrägstrich sind unzulässig.
+      protocol:
+        const: https
+      supportedHttpMethods:
+        type: array
+        minItems: 1
+        uniqueItems: true
+        items:
+          $ref: '#/$defs/httpMethod'
+    description: Kommunikationsparameter mit genau einer absoluten HTTPS-Zieladresse.
+  communicationParametersWrite:
+    type: object
+    additionalProperties: false
+    required:
+    - targetUrl
+    - protocol
+    - supportedHttpMethods
+    properties:
+      targetUrl:
+        type: string
+        format: uri
+        pattern: ^https://[^?#]+$
+        maxLength: 2048
+        not:
+          pattern: /$
+        x-h2-uri-host: dnsName
+        x-h2-uri-userinfo: forbidden
+        x-h2-uri-ip-literal: forbidden
+        x-h2-uri-query: forbidden
+        x-h2-uri-fragment: forbidden
+        x-h2-uri-trailing-slash: forbidden
+        description: Genau eine absolute HTTPS-Zieladresse. Benutzerinformationen, IP-Literale, Query- und Fragment-Komponenten
+          sowie ein abschließender Schrägstrich sind unzulässig.
+      protocol:
+        const: https
+      supportedHttpMethods:
+        type: array
+        minItems: 1
+        uniqueItems: true
+        items:
+          $ref: '#/$defs/httpMethod'
+    description: Geschlossene Schreibfassung der Kommunikationsparameter mit genau einer absoluten HTTPS-Zieladresse.
+  contact:
+    type: object
+    additionalProperties: true
+    required:
+    - name
+    properties:
+      name:
+        type: string
+        minLength: 1
+        maxLength: 256
+      organisation:
+        type: string
+        minLength: 1
+        maxLength: 256
+      email:
+        type: string
+        format: email
+        maxLength: 256
+      phone:
+        type: string
+        pattern: ^\+?[0-9() ./-]{5,32}$
+      serviceHours:
+        type: string
+        minLength: 1
+        maxLength: 256
+    anyOf:
+    - required:
+      - email
+    - required:
+      - phone
+  contactWrite:
+    type: object
+    additionalProperties: false
+    required:
+    - name
+    properties:
+      name:
+        type: string
+        minLength: 1
+        maxLength: 256
+      organisation:
+        type: string
+        minLength: 1
+        maxLength: 256
+      email:
+        type: string
+        format: email
+        maxLength: 256
+      phone:
+        type: string
+        pattern: ^\+?[0-9() ./-]{5,32}$
+      serviceHours:
+        type: string
+        minLength: 1
+        maxLength: 256
+    anyOf:
+    - required:
+      - email
+    - required:
+      - phone
+  contacts:
+    type: object
+    additionalProperties: true
+    required:
+    - technical
+    properties:
+      technical:
+        $ref: '#/$defs/contact'
+      business:
+        $ref: '#/$defs/contact'
+  contactsWrite:
+    type: object
+    additionalProperties: false
+    required:
+    - technical
+    properties:
+      technical:
+        $ref: '#/$defs/contactWrite'
+      business:
+        $ref: '#/$defs/contactWrite'
+  validity:
+    type: object
+    additionalProperties: true
+    required:
+    - validFrom
+    properties:
+      validFrom:
+        $ref: '#/$defs/timestampUtc'
+      validUntil:
+        $ref: '#/$defs/timestampUtc'
+  validityWrite:
+    type: object
+    additionalProperties: false
+    required:
+    - validFrom
+    properties:
+      validFrom:
+        $ref: '#/$defs/timestampUtc'
+      validUntil:
+        $ref: '#/$defs/timestampUtc'
+  availabilityMonitoring:
+    type: object
+    additionalProperties: true
+    required:
+    - enabled
+    - mechanism
+    properties:
+      enabled:
+        type: boolean
+      mechanism:
+        const: websocketHeartbeat
+  availabilityMonitoringWrite:
+    type: object
+    additionalProperties: false
+    required:
+    - enabled
+    - mechanism
+    properties:
+      enabled:
+        type: boolean
+      mechanism:
+        const: websocketHeartbeat
+  availabilityMonitoringStatus:
+    type: object
+    additionalProperties: true
+    required:
+    - state
+    - changedAt
+    - reason
+    properties:
+      state:
+        type: string
+        enum:
+        - inactive
+        - confirmed
+        - unconfirmed
+        - monitoringUnavailable
+      changedAt:
+        $ref: '#/$defs/timestampUtc'
+      reason:
+        $ref: '#/$defs/reasonCode'
+        description: In Version 1 insbesondere monitoringDisabled, monitoringEnabledAwaitingStart, availabilityConfirmed,
+          serviceUnavailableReported, heartbeatExpired, connectionLost, monitoringInfrastructureUnavailable, monitoringInfrastructureRestored
+          und lifecycleRetired.
+  maintenanceWindow:
+    type: object
+    additionalProperties: true
+    required:
+    - start
+    - end
+    properties:
+      start:
+        $ref: '#/$defs/timestampUtc'
+      end:
+        $ref: '#/$defs/timestampUtc'
+  maintenanceWindowWrite:
+    type: object
+    additionalProperties: false
+    required:
+    - start
+    - end
+    properties:
+      start:
+        $ref: '#/$defs/timestampUtc'
+      end:
+        $ref: '#/$defs/timestampUtc'
+  overrideActor:
+    type: object
+    additionalProperties: true
+    required:
+    - actorType
+    properties:
+      actorType:
+        type: string
+        enum:
+        - marketPartner
+        - apiGovernance
+      marketPartnerId:
+        $ref: '#/$defs/providerId'
+      role:
+        $ref: '#/$defs/marketRole'
+    allOf:
+    - if:
+        properties:
+          actorType:
+            const: marketPartner
+        required:
+        - actorType
+      then:
+        required:
+        - marketPartnerId
+        - role
+    - if:
+        properties:
+          actorType:
+            const: apiGovernance
+        required:
+        - actorType
+      then:
+        not:
+          anyOf:
+          - required:
+            - marketPartnerId
+          - required:
+            - role
+    x-h2-semantic-rule: Bei actorType=marketPartner muss marketPartnerId der authentisierten MP-ID und der providerId des
+      Records entsprechen; role muss dem gebundenen Rollen- und Berechtigungskontext entsprechen.
+  manualOverride:
+    type: object
+    additionalProperties: true
+    required:
+    - state
+    - operationalStatus
+    - reason
+    - description
+    - setAt
+    - setBy
+    properties:
+      state:
+        type: string
+        enum:
+        - scheduled
+        - active
+        description: scheduled bei zukünftiger geplanter Wartung, active bei aktuell wirksamem Override.
+      operationalStatus:
+        $ref: '#/$defs/operationalStatus'
+      reason:
+        $ref: '#/$defs/reasonCode'
+      description:
+        type: string
+        minLength: 1
+        maxLength: 1024
+      reference:
+        type: string
+        minLength: 1
+        maxLength: 256
+      setAt:
+        $ref: '#/$defs/timestampUtc'
+      setBy:
+        $ref: '#/$defs/overrideActor'
+      activatedAt:
+        $ref: '#/$defs/timestampUtc'
+      validUntil:
+        $ref: '#/$defs/timestampUtc'
+      maintenanceWindow:
+        $ref: '#/$defs/maintenanceWindow'
+    allOf:
+    - if:
+        properties:
+          state:
+            const: scheduled
+        required:
+        - state
+      then:
+        properties:
+          operationalStatus:
+            const: maintenance
+        required:
+        - maintenanceWindow
+        - validUntil
+        not:
+          required:
+          - activatedAt
+    - if:
+        properties:
+          state:
+            const: active
+        required:
+        - state
+      then:
+        required:
+        - activatedAt
+    - if:
+        properties:
+          operationalStatus:
+            const: maintenance
+        required:
+        - operationalStatus
+      then:
+        required:
+        - maintenanceWindow
+        - validUntil
+    - if:
+        properties:
+          operationalStatus:
+            not:
+              const: maintenance
+        required:
+        - operationalStatus
+      then:
+        not:
+          required:
+          - maintenanceWindow
+    x-h2-semantic-rules:
+      scheduled: Nur maintenance; maintenanceWindow.start liegt bei Annahme in der Zukunft; activatedAt fehlt.
+      active: activatedAt vorhanden; Root-Status und Metadaten entsprechen dem Override.
+      maintenance: validUntil ist vorhanden und entspricht maintenanceWindow.end.
+  DirectoryRecord:
+    title: DirectoryRecord
+    description: Vollständiger Verzeichniseintrag der synchronen Web-API und von WebSocket notification.payload.entry. Das
+      Response-Objekt und seine serverseitigen Unterobjekte sind für zusätzliche optionale Eigenschaften erweiterbar. Signaturfelder
+      des gespeicherten Records sind in Version 1 ausdrücklich unzulässig.
+    type: object
+    additionalProperties: true
+    required:
+    - providerId
+    - apiId
+    - majorVersion
+    - revision
+    - serviceName
+    - allowedRoles
+    - communicationParameters
+    - capabilities
+    - contacts
+    - validity
+    - lifecycleStatus
+    - operationalStatus
+    - operationalStatusSource
+    - operationalStatusChangedAt
+    - operationalStatusReason
+    - availabilityMonitoring
+    - availabilityMonitoringStatus
+    properties:
+      providerId:
+        $ref: '#/$defs/providerId'
+        x-h2-data-ownership: recordKey
+      apiId:
+        $ref: '#/$defs/apiId'
+        x-h2-data-ownership: apiGovernance
+      majorVersion:
+        $ref: '#/$defs/majorVersion'
+        x-h2-data-ownership: apiGovernance
+      revision:
+        $ref: '#/$defs/revision'
+        x-h2-data-ownership: directoryService
+      serviceName:
+        type: string
+        minLength: 1
+        maxLength: 256
+        description: Fachliche Bezeichnung aus dem API-Katalog.
+        x-h2-data-ownership: apiGovernance
+      serviceDescription:
+        type: string
+        minLength: 1
+        maxLength: 1024
+        description: Kurzbeschreibung des fachlichen Zwecks aus dem API-Katalog.
+        x-h2-data-ownership: apiGovernance
+      allowedRoles:
+        type: array
+        minItems: 1
+        uniqueItems: true
+        items:
+          $ref: '#/$defs/marketRole'
+        description: Vom Marktpartner unterstützte Teilmenge der katalogseitig zugelassenen Rollen.
+        x-h2-data-ownership: marketPartner
+      communicationParameters:
+        $ref: '#/$defs/communicationParameters'
+        x-h2-data-ownership: marketPartner
+      capabilities:
+        type: array
+        uniqueItems: true
+        items:
+          $ref: '#/$defs/capabilityCode'
+        description: Vom Marktpartner unterstützte Teilmenge der katalogseitig zugelassenen Capability-Codes.
+        x-h2-data-ownership: marketPartner
+      contacts:
+        $ref: '#/$defs/contacts'
+        x-h2-data-ownership: marketPartner
+      validity:
+        $ref: '#/$defs/validity'
+        x-h2-data-ownership: marketPartner
+      lifecycleStatus:
+        $ref: '#/$defs/lifecycleStatus'
+        x-h2-data-ownership: apiGovernance
+      deprecatedSince:
+        $ref: '#/$defs/timestampUtc'
+        x-h2-data-ownership: apiGovernance
+      sunsetAt:
+        $ref: '#/$defs/timestampUtc'
+        x-h2-data-ownership: apiGovernance
+      replacement:
+        $ref: '#/$defs/replacement'
+        x-h2-data-ownership: apiGovernance
+      operationalStatus:
+        $ref: '#/$defs/operationalStatus'
+        x-h2-data-ownership: directoryService
+      operationalStatusSource:
+        $ref: '#/$defs/reasonCode'
+        x-h2-data-ownership: directoryService
+        description: In Version 1 insbesondere initialRegistration, manualOverride, websocketHeartbeat und lifecycleRetired.
+      operationalStatusChangedAt:
+        $ref: '#/$defs/timestampUtc'
+        x-h2-data-ownership: directoryService
+      operationalStatusReason:
+        $ref: '#/$defs/reasonCode'
+        x-h2-data-ownership: directoryService
+      operationalStatusDescription:
+        type: string
+        minLength: 1
+        maxLength: 1024
+        description: Kurzbeschreibung der Ursache oder Auswirkung.
+        x-h2-data-ownership: directoryService
+      operationalStatusExpectedEnd:
+        $ref: '#/$defs/timestampUtc'
+        x-h2-data-ownership: directoryService
+      operationalStatusReference:
+        type: string
+        minLength: 1
+        maxLength: 256
+        x-h2-data-ownership: directoryService
+      manualOverride:
+        $ref: '#/$defs/manualOverride'
+        x-h2-data-ownership: directoryService
+      availabilityMonitoring:
+        $ref: '#/$defs/availabilityMonitoring'
+        x-h2-data-ownership: marketPartner
+      availabilityMonitoringStatus:
+        $ref: '#/$defs/availabilityMonitoringStatus'
+        x-h2-data-ownership: directoryService
+      signature: false
+      recordSignature: false
+      marketPartnerSignature: false
+      signingCertificate: false
+    allOf:
+    - if:
+        properties:
+          lifecycleStatus:
+            const: deprecated
+        required:
+        - lifecycleStatus
+      then:
+        required:
+        - deprecatedSince
+        - sunsetAt
+        - replacement
+    - if:
+        properties:
+          lifecycleStatus:
+            const: sunset
+        required:
+        - lifecycleStatus
+      then:
+        required:
+        - sunsetAt
+    - if:
+        properties:
+          lifecycleStatus:
+            const: retired
+        required:
+        - lifecycleStatus
+      then:
+        properties:
+          operationalStatus:
+            const: down
+          operationalStatusSource:
+            const: lifecycleRetired
+          operationalStatusReason:
+            const: lifecycleRetired
+          availabilityMonitoringStatus:
+            allOf:
+            - $ref: '#/$defs/availabilityMonitoringStatus'
+            - properties:
+                state:
+                  const: inactive
+                reason:
+                  const: lifecycleRetired
+        not:
+          required:
+          - manualOverride
+    - if:
+        properties:
+          operationalStatus:
+            not:
+              const: operational
+        required:
+        - operationalStatus
+      then:
+        required:
+        - operationalStatusDescription
+    - if:
+        properties:
+          operationalStatus:
+            const: maintenance
+        required:
+        - operationalStatus
+      then:
+        required:
+        - operationalStatusExpectedEnd
+        - manualOverride
+        properties:
+          operationalStatusSource:
+            const: manualOverride
+          manualOverride:
+            allOf:
+            - $ref: '#/$defs/manualOverride'
+            - properties:
+                state:
+                  const: active
+                operationalStatus:
+                  const: maintenance
+              required:
+              - state
+              - maintenanceWindow
+              - validUntil
+              - activatedAt
+    - if:
+        properties:
+          operationalStatus:
+            const: degraded
+        required:
+        - operationalStatus
+      then:
+        required:
+        - manualOverride
+        - operationalStatusDescription
+        properties:
+          operationalStatusSource:
+            const: manualOverride
+          manualOverride:
+            allOf:
+            - $ref: '#/$defs/manualOverride'
+            - properties:
+                state:
+                  const: active
+                operationalStatus:
+                  const: degraded
+              required:
+              - state
+              - activatedAt
+    - if:
+        properties:
+          manualOverride:
+            properties:
+              state:
+                const: active
+            required:
+            - state
+        required:
+        - manualOverride
+      then:
+        properties:
+          operationalStatusSource:
+            const: manualOverride
+        required:
+        - operationalStatusDescription
+    - if:
+        properties:
+          manualOverride:
+            properties:
+              state:
+                const: active
+            required:
+            - state
+            - validUntil
+        required:
+        - manualOverride
+      then:
+        required:
+        - operationalStatusExpectedEnd
+    - if:
+        properties:
+          manualOverride:
+            properties:
+              state:
+                const: active
+            required:
+            - state
+            - reference
+        required:
+        - manualOverride
+      then:
+        required:
+        - operationalStatusReference
+    - if:
+        properties:
+          manualOverride:
+            properties:
+              state:
+                const: scheduled
+            required:
+            - state
+        required:
+        - manualOverride
+      then:
+        properties:
+          operationalStatusSource:
+            not:
+              const: manualOverride
+          operationalStatus:
+            not:
+              const: maintenance
+    - if:
+        properties:
+          operationalStatusSource:
+            const: manualOverride
+        required:
+        - operationalStatusSource
+      then:
+        required:
+        - manualOverride
+        properties:
+          manualOverride:
+            allOf:
+            - $ref: '#/$defs/manualOverride'
+            - properties:
+                state:
+                  const: active
+              required:
+              - state
+              - activatedAt
+    - if:
+        properties:
+          lifecycleStatus:
+            not:
+              const: retired
+          availabilityMonitoring:
+            properties:
+              enabled:
+                const: false
+            required:
+            - enabled
+        required:
+        - lifecycleStatus
+        - availabilityMonitoring
+      then:
+        properties:
+          availabilityMonitoringStatus:
+            allOf:
+            - $ref: '#/$defs/availabilityMonitoringStatus'
+            - properties:
+                state:
+                  const: inactive
+                reason:
+                  const: monitoringDisabled
+    - if:
+        properties:
+          lifecycleStatus:
+            not:
+              const: retired
+          availabilityMonitoring:
+            properties:
+              enabled:
+                const: true
+            required:
+            - enabled
+        required:
+        - lifecycleStatus
+        - availabilityMonitoring
+      then:
+        properties:
+          availabilityMonitoringStatus:
+            allOf:
+            - $ref: '#/$defs/availabilityMonitoringStatus'
+            - properties:
+                state:
+                  enum:
+                  - confirmed
+                  - unconfirmed
+                  - monitoringUnavailable
+  DirectoryRecordWrite:
+    title: DirectoryRecordWrite
+    description: Geschlossener PUT-Body für die vollständige Ersetzung der marktpartnerseitig gepflegten Daten. Schlüssel-,
+      Governance- und Systemfelder sind nicht enthalten.
+    type: object
+    additionalProperties: false
+    required:
+    - allowedRoles
+    - communicationParameters
+    - capabilities
+    - contacts
+    - validity
+    - availabilityMonitoring
+    properties:
+      allowedRoles:
+        type: array
+        minItems: 1
+        uniqueItems: true
+        items:
+          $ref: '#/$defs/marketRole'
+        description: Nichtleere Teilmenge der katalogseitig zugelassenen Marktrollen.
+      communicationParameters:
+        $ref: '#/$defs/communicationParametersWrite'
+      capabilities:
+        type: array
+        uniqueItems: true
+        items:
+          $ref: '#/$defs/capabilityCode'
+        description: Teilmenge der katalogseitig zugelassenen Capability-Codes; leeres Array zulässig.
+      contacts:
+        $ref: '#/$defs/contactsWrite'
+      validity:
+        $ref: '#/$defs/validityWrite'
+      availabilityMonitoring:
+        $ref: '#/$defs/availabilityMonitoringWrite'
+  ManualOverrideSetRequest:
+    title: ManualOverrideSetRequest
+    type: object
+    additionalProperties: false
+    required:
+    - action
+    - operationalStatus
+    - reason
+    - description
+    properties:
+      action:
+        const: set
+      operationalStatus:
+        $ref: '#/$defs/operationalStatus'
+      reason:
+        $ref: '#/$defs/reasonCode'
+      description:
+        type: string
+        minLength: 1
+        maxLength: 1024
+      reference:
+        type: string
+        minLength: 1
+        maxLength: 256
+      validUntil:
+        $ref: '#/$defs/timestampUtc'
+      maintenanceWindow:
+        $ref: '#/$defs/maintenanceWindowWrite'
+    allOf:
+    - if:
+        properties:
+          operationalStatus:
+            const: maintenance
+        required:
+        - operationalStatus
+      then:
+        required:
+        - validUntil
+        - maintenanceWindow
+    - if:
+        properties:
+          operationalStatus:
+            not:
+              const: maintenance
+        required:
+        - operationalStatus
+      then:
+        not:
+          required:
+          - maintenanceWindow
+    x-h2-semantic-rules:
+      maintenance: maintenanceWindow.start < maintenanceWindow.end; validUntil = maintenanceWindow.end.
+      scheduledDecision: Liegt start nach der Serverzeit, wird scheduled gespeichert; sonst bei start <= jetzt < end unmittelbar
+        active.
+  ManualOverrideClearRequest:
+    title: ManualOverrideClearRequest
+    type: object
+    additionalProperties: false
+    required:
+    - action
+    - reason
+    properties:
+      action:
+        const: clear
+      reason:
+        $ref: '#/$defs/reasonCode'
+      description:
+        type: string
+        minLength: 1
+        maxLength: 1024
+  ManualOverrideRequest:
+    title: ManualOverrideRequest
+    oneOf:
+    - $ref: '#/$defs/ManualOverrideSetRequest'
+    - $ref: '#/$defs/ManualOverrideClearRequest'
+  DirectoryRecordDeletionResult:
+    title: DirectoryRecordDeletionResult
+    description: Signierte fachliche Löschbestätigung. Zusätzliche optionale Response-Eigenschaften sind zulässig.
+    type: object
+    additionalProperties: true
+    required:
+    - providerId
+    - apiId
+    - majorVersion
+    - revision
+    - deletedAt
+    - status
+    properties:
+      providerId:
+        $ref: '#/$defs/providerId'
+      apiId:
+        $ref: '#/$defs/apiId'
+      majorVersion:
+        $ref: '#/$defs/majorVersion'
+      revision:
+        $ref: '#/$defs/revision'
+      deletedAt:
+        $ref: '#/$defs/timestampUtc'
+      status:
+        const: deleted
+x-h2-source-documents:
+  apiGuideline:
+    file: API_Guideline_v.docx
+    stand: '2026-07-11'
+    sha256: dd3b7451d227dc6952f80458ab3b49b3dcc7fba9964cbde6438c7ccce9e9ed1a
+  jwsSpecification:
+    file: JWS-Inhaltsdatensicherung_für_API-Webdienste(7).docx
+    sha256: 2b85b48f77e073d6a0325fd85ca318f77c6e033b64b699a50d4504df3828b5be
+  webSocketSpecification:
+    file: WebSocket_Verzeichnisdienst_Schnittstellenbeschreibung(6).docx
+    stand: '2026-07-12'
+    sha256: 673d2e92e648df1f018958538517f8fe9f44431bbc9d56949e91cc457c0eee10

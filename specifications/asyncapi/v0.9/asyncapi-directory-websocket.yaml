@@ -1,0 +1,382 @@
+asyncapi: 3.0.0
+info:
+  title: Wasserstoffmarkt – Verzeichnisdienst (WebSocket-API)
+  version: 1.0.0
+  description: 'Bidirektionale WebSocket-API des zentralen Verzeichnisdienstes. Dokumentperspektive ist der Verzeichnisdienst:
+    receive bedeutet Client zu Server, send bedeutet Server zu Client. notifications werden at-most-once ohne Resume zugestellt;
+    nach jedem Verbindungsaufbau ist über die synchrone Web-API zu resynchronisieren.'
+  contact:
+    name: API-Governance Wasserstoffmarkt
+defaultContentType: application/json
+servers:
+  production:
+    host: '{productionHost}'
+    protocol: wss
+    protocolVersion: '13'
+    description: PROD-Instanz des zentralen Verzeichnisdienstes.
+    variables:
+      productionHost:
+        default: directory.prod.example.invalid
+        description: DNS-Name der PROD-Instanz.
+    security:
+    - $ref: '#/components/securitySchemes/mutualTLS'
+  test:
+    host: '{testHost}'
+    protocol: wss
+    protocolVersion: '13'
+    description: TEST-Instanz des zentralen Verzeichnisdienstes.
+    variables:
+      testHost:
+        default: directory.test.example.invalid
+        description: DNS-Name der TEST-Instanz.
+    security:
+    - $ref: '#/components/securitySchemes/mutualTLS'
+channels:
+  directoryWebSocket:
+    address: /v1/ws/subscriptions
+    title: WebSocket-Verbindung des Verzeichnisdienstes
+    description: WSS mit mTLS und Subprotokoll h2.directory.v1. H2-Transaction-Id des erfolgreichen Upgrade-Requests ist die
+      connectionId. H2-Cert bindet das SIG-Zertifikat.
+    servers:
+    - $ref: '#/servers/production'
+    - $ref: '#/servers/test'
+    messages:
+      subscribe:
+        $ref: '#/components/messages/subscribe'
+      unsubscribe:
+        $ref: '#/components/messages/unsubscribe'
+      availabilityStart:
+        $ref: '#/components/messages/availabilityStart'
+      availabilityHeartbeat:
+        $ref: '#/components/messages/availabilityHeartbeat'
+      availabilityStop:
+        $ref: '#/components/messages/availabilityStop'
+      subscribeAck:
+        $ref: '#/components/messages/subscribeAck'
+      unsubscribeAck:
+        $ref: '#/components/messages/unsubscribeAck'
+      availabilityAck:
+        $ref: '#/components/messages/availabilityAck'
+      notification:
+        $ref: '#/components/messages/notification'
+      error:
+        $ref: '#/components/messages/error'
+    bindings:
+      ws:
+        method: GET
+        headers:
+          type: object
+          additionalProperties: true
+          required:
+          - Host
+          - Upgrade
+          - Connection
+          - Sec-WebSocket-Key
+          - Sec-WebSocket-Version
+          - Sec-WebSocket-Protocol
+          - H2-Transaction-Id
+          - H2-Cert
+          - H2-Message-Sender
+          - H2-Message-Sender-Role
+          - H2-Message-Receiver
+          - H2-Message-Receiver-Role
+          - H2-Business-Process
+          properties:
+            Host:
+              type: string
+              minLength: 1
+            Upgrade:
+              type: string
+              const: websocket
+            Connection:
+              type: string
+              const: Upgrade
+            Sec-WebSocket-Key:
+              type: string
+              minLength: 1
+            Sec-WebSocket-Version:
+              type: string
+              const: '13'
+            Sec-WebSocket-Protocol:
+              type: string
+              const: h2.directory.v1
+            H2-Transaction-Id:
+              type: string
+              format: uuid
+              pattern: ^[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$
+            H2-Cert:
+              type: string
+              pattern: ^:[A-Za-z0-9+/]+={0,2}:$
+              maxLength: 16384
+            H2-Message-Sender:
+              type: string
+              pattern: ^[0-9]{13}$
+            H2-Message-Sender-Role:
+              type: string
+              enum:
+              - HydrogenGridOperator
+              - HydrogenMarketAreaManager
+              - BalanceGroupResponsibleParty
+              - TransportCustomer
+              - DataHub
+              - StorageOperator
+            H2-Message-Receiver:
+              type: string
+              pattern: ^[0-9]{13}$
+            H2-Message-Receiver-Role:
+              type: string
+              const: DataHub
+            H2-Business-Process:
+              type: string
+              const: directoryWebSocket
+            H2-Initial-Transaction-Id: false
+            H2-Forwarded-By: false
+            H2-Signature: false
+            H2-Digest: false
+            Content-Type: false
+        bindingVersion: 0.1.0
+operations:
+  receiveClientMessages:
+    action: receive
+    channel:
+      $ref: '#/channels/directoryWebSocket'
+    title: Signaturpflichtige Client-Nachrichten empfangen
+    description: Empfang von subscribe, unsubscribe, availabilityStart, availabilityHeartbeat und availabilityStop. Jede Nachricht
+      wird gemäß JWS-SPEC über connectionId und Envelope ohne signature signiert.
+    messages:
+    - $ref: '#/channels/directoryWebSocket/messages/subscribe'
+    - $ref: '#/channels/directoryWebSocket/messages/unsubscribe'
+    - $ref: '#/channels/directoryWebSocket/messages/availabilityStart'
+    - $ref: '#/channels/directoryWebSocket/messages/availabilityHeartbeat'
+    - $ref: '#/channels/directoryWebSocket/messages/availabilityStop'
+  sendServerMessages:
+    action: send
+    channel:
+      $ref: '#/channels/directoryWebSocket'
+    title: Server-Nachrichten senden
+    description: Ack-, Notification- und Error-Nachrichten; signature ist in Server-Nachrichten unzulässig.
+    messages:
+    - $ref: '#/channels/directoryWebSocket/messages/subscribeAck'
+    - $ref: '#/channels/directoryWebSocket/messages/unsubscribeAck'
+    - $ref: '#/channels/directoryWebSocket/messages/availabilityAck'
+    - $ref: '#/channels/directoryWebSocket/messages/notification'
+    - $ref: '#/channels/directoryWebSocket/messages/error'
+components:
+  securitySchemes:
+    mutualTLS:
+      type: X509
+      description: mTLS mit EMT.API-TLS-Zertifikat; das SIG-Zertifikat wird beim Upgrade über H2-Cert übertragen und an die
+        Verbindung gebunden.
+  messages:
+    subscribe:
+      name: subscribe
+      title: Subscription einrichten
+      contentType: application/json
+      payload:
+        schemaFormat: application/schema+yaml;version=draft-2020-12
+        schema:
+          $ref: ../../schemas/v0.9/ws-client-message.schema.yaml#/$defs/SubscribeMessage
+    unsubscribe:
+      name: unsubscribe
+      title: Subscription kündigen
+      contentType: application/json
+      payload:
+        schemaFormat: application/schema+yaml;version=draft-2020-12
+        schema:
+          $ref: ../../schemas/v0.9/ws-client-message.schema.yaml#/$defs/UnsubscribeMessage
+    availabilityStart:
+      name: availabilityStart
+      title: Technische Verfügbarkeitsmeldung beginnen
+      contentType: application/json
+      payload:
+        schemaFormat: application/schema+yaml;version=draft-2020-12
+        schema:
+          $ref: ../../schemas/v0.9/ws-client-message.schema.yaml#/$defs/AvailabilityStartMessage
+    availabilityHeartbeat:
+      name: availabilityHeartbeat
+      title: Fachlicher Heartbeat
+      contentType: application/json
+      payload:
+        schemaFormat: application/schema+yaml;version=draft-2020-12
+        schema:
+          $ref: ../../schemas/v0.9/ws-client-message.schema.yaml#/$defs/AvailabilityHeartbeatMessage
+    availabilityStop:
+      name: availabilityStop
+      title: Technische Verfügbarkeitsmeldung beenden
+      contentType: application/json
+      payload:
+        schemaFormat: application/schema+yaml;version=draft-2020-12
+        schema:
+          $ref: ../../schemas/v0.9/ws-client-message.schema.yaml#/$defs/AvailabilityStopMessage
+    subscribeAck:
+      name: subscribeAck
+      title: Subscription bestätigen
+      contentType: application/json
+      payload:
+        schemaFormat: application/schema+yaml;version=draft-2020-12
+        schema:
+          $ref: ../../schemas/v0.9/ws-server-message.schema.yaml#/$defs/SubscribeAckMessage
+      correlationId:
+        location: $message.payload#/correlationId
+    unsubscribeAck:
+      name: unsubscribeAck
+      title: Kündigung bestätigen
+      contentType: application/json
+      payload:
+        schemaFormat: application/schema+yaml;version=draft-2020-12
+        schema:
+          $ref: ../../schemas/v0.9/ws-server-message.schema.yaml#/$defs/UnsubscribeAckMessage
+      correlationId:
+        location: $message.payload#/correlationId
+    availabilityAck:
+      name: availabilityAck
+      title: Verfügbarkeitsmeldung bestätigen
+      contentType: application/json
+      payload:
+        schemaFormat: application/schema+yaml;version=draft-2020-12
+        schema:
+          $ref: ../../schemas/v0.9/ws-server-message.schema.yaml#/$defs/AvailabilityAckMessage
+      correlationId:
+        location: $message.payload#/correlationId
+    notification:
+      name: notification
+      title: Änderungsbenachrichtigung
+      contentType: application/json
+      payload:
+        schemaFormat: application/schema+yaml;version=draft-2020-12
+        schema:
+          $ref: ../../schemas/v0.9/ws-server-message.schema.yaml#/$defs/NotificationMessage
+    error:
+      name: error
+      title: Fehlernachricht
+      contentType: application/json
+      payload:
+        schemaFormat: application/schema+yaml;version=draft-2020-12
+        schema:
+          $ref: ../../schemas/v0.9/ws-server-message.schema.yaml#/$defs/ErrorMessage
+      correlationId:
+        location: $message.payload#/correlationId
+  schemas:
+    ClientMessage:
+      schemaFormat: application/schema+yaml;version=draft-2020-12
+      schema:
+        $ref: ../../schemas/v0.9/ws-client-message.schema.yaml#/$defs/ClientMessage
+    ServerMessage:
+      schemaFormat: application/schema+yaml;version=draft-2020-12
+      schema:
+        $ref: ../../schemas/v0.9/ws-server-message.schema.yaml#/$defs/ServerMessage
+    DirectoryRecord:
+      schemaFormat: application/schema+yaml;version=draft-2020-12
+      schema:
+        $ref: ../../schemas/v0.9/directory-record.schema.yaml#/$defs/DirectoryRecord
+x-h2-source-documents:
+  apiGuideline:
+    file: API_Guideline_v1_0(5).docx
+    sha256: dd3b7451d227dc6952f80458ab3b49b3dcc7fba9964cbde6438c7ccce9e9ed1a
+  jwsSpecification:
+    file: JWS-Inhaltsdatensicherung_für_API-Webdienste(7).docx
+    sha256: 2b85b48f77e073d6a0325fd85ca318f77c6e033b64b699a50d4504df3828b5be
+  webSocketSpecification:
+    file: WebSocket_Verzeichnisdienst_Schnittstellenbeschreibung(6).docx
+    sha256: 673d2e92e648df1f018958538517f8fe9f44431bbc9d56949e91cc457c0eee10
+  directoryRecordSpecification:
+    id: urn:h2:directory:spec:v1
+x-h2-subprotocol: h2.directory.v1
+x-h2-environment-isolation:
+  separateHosts: true
+  crossEnvironmentProcessing: forbidden
+  stateIndependent: true
+x-h2-upgrade:
+  requestMethod: HTTP/1.1 GET
+  requestBody: forbidden
+  contentSignature: not used for upgrade request or responses
+  connectionId: H2-Transaction-Id of successful upgrade
+  businessProcess: directoryWebSocket
+  negativeHttpStatuses:
+  - 400
+  - 401
+  - 403
+  - 404
+  - 405
+  - 409
+  - 410
+  - 426
+  - 429
+  - 500
+  - 503
+x-h2-message-signature:
+  clientMessages:
+  - subscribe
+  - unsubscribe
+  - availabilityStart
+  - availabilityHeartbeat
+  - availabilityStop
+  serverMessagesSigned: false
+  profile: JWS-SPEC typ=h2-ws-sig+jws with connectionId binding
+x-h2-delivery:
+  notifications: at-most-once
+  resume: false
+  applicationAcknowledgement: false
+  resynchronization: synchronous GET after every reconnect and on revision gaps
+  ordering: ascending revision per DirectoryRecord key within one connection
+x-h2-errors:
+  ERR-MSG-001: Unbekannter, nicht unterstützter oder richtungswidriger Nachrichtentyp.
+  ERR-MSG-002: messageId innerhalb derselben Verbindung bereits verwendet.
+  ERR-VAL-001: Verletzung von Struktur, Datentyp, Format oder Pflichtfeld.
+  ERR-AUTH-001: Für künftige Erweiterungen reservierter Berechtigungsfehler.
+  ERR-SUB-001: Referenzierter Verzeichniseintrag existiert nicht.
+  ERR-SUB-002: Maximale Anzahl aktiver Subscriptions überschritten.
+  ERR-AVL-001: Unzulässige technische Verfügbarkeitsmeldung.
+  ERR-AVL-002: Heartbeat ohne aktive Verfügbarkeitsmeldung.
+  ERR-AVL-003: Maximale Anzahl aktiver Verfügbarkeitsmeldungen überschritten.
+  ERR-SIG-001: Fehlende, strukturell oder kryptographisch ungültige Signatur oder Zeitfensterverletzung.
+  ERR-RATE-001: Nachrichtenrate überschritten.
+  ERR-INT-001: Interner Fehler; Verarbeitungsausgang kann unbekannt sein.
+x-h2-close-codes:
+  1000: Normale Beendigung.
+  1001: Server geht weg oder in Wartung.
+  1003: Binärframe empfangen; nur Textframes zulässig.
+  1007: Ungültiges UTF-8.
+  1008: Policy Violation.
+  1009: Nachricht zu groß.
+  1011: Unerwarteter interner Serverfehler.
+  4000: Anwendungsprotokollverletzung.
+  4001: Sicherheitskontext ungültig geworden.
+  4002: Idle-Timeout.
+  4003: Wiederholte Limitüberschreitung.
+  4004: Serverseitiger Sendepufferüberlauf.
+  4005: Planmäßige Verbindungsrotation nach 24 Stunden.
+x-h2-operational-parameters:
+  maxMessageBytes: 1048576
+  maxEntryBytes: 921600
+  maxSignatureBytes: 4096
+  availabilityHeartbeatIntervalSeconds: 60
+  availabilityHeartbeatTimeoutSeconds: 180
+  availabilityGracePeriodSeconds: 120
+  massLossObservationWindowSeconds: 60
+  massLossMinimumCount: 20
+  massLossMinimumSharePercent: 10
+  circuitBreakerStableSecondsBeforeReset: 300
+  connectionIdReuseLockSeconds: 600
+  maxConnectionDurationSeconds: 86400
+  serverPingIntervalSeconds: 30
+  idleTimeoutSeconds: 300
+  applicationResponseTimeoutSeconds: 30
+  maxNotificationDelaySeconds: 30
+  maxSubscriptionsPerConnection: 1000
+  maxAvailabilityReportsPerConnection: 200
+  maxConnectionsPerProviderAndEnvironment: 10
+  maxUpgradeAttemptsPerProviderAndEnvironmentPer60Seconds: 20
+  maxClientMessagesPerConnectionPer10Seconds: 50
+  reconnectBackoff:
+    initialSeconds: 1
+    factor: 2
+    maximumSeconds: 300
+    jitterPercent: 0-50
+  maxReconnectAttemptsPerCycle: 20
+  plannedRotationJitterSeconds: 1-30
+x-h2-availability-monitoring:
+  availabilityStartBeforeSubscribeAfterReconnect: true
+  confirmedHeartbeatDoesNotChangeRevision: true
+  monitoringInfrastructureFailureDoesNotSetOperationalStatusDown: true
+  massLossCircuitBreaker: true

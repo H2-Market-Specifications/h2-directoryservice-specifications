@@ -1,0 +1,1085 @@
+openapi: 3.1.2
+info:
+  title: Wasserstoffmarkt – Verzeichnisdienst (synchrone Web-API)
+  version: 1.0.0
+  summary: Gezielte Abfrage und Pflege einzelner DirectoryRecord-Ressourcen.
+  description: Synchrone Pull- und Pflege-API des zentralen Verzeichnisdienstes am Data Hub. GET ist für jeden erfolgreich
+    authentisierten EMT.API-Marktpartner lesbar. PUT, PATCH und DELETE sind ausschließlich für Einträge der eigenen providerId
+    zulässig. Governance-Daten werden nicht über öffentliche Pfade dieser OpenAPI gepflegt. In Version 1 wird keine eigenständige
+    dauerhaft gespeicherte DirectoryRecord-Signatur verwendet.
+  contact:
+    name: API-Governance Wasserstoffmarkt
+jsonSchemaDialect: https://json-schema.org/draft/2020-12/schema
+servers:
+- url: https://{productionHost}/v1
+  description: Produktivumgebung (PROD).
+  variables:
+    productionHost:
+      default: directory.prod.example.invalid
+      description: DNS-Name der PROD-Instanz.
+- url: https://{testHost}/v1
+  description: Test- und Abnahmeumgebung (TEST).
+  variables:
+    testHost:
+      default: directory.test.example.invalid
+      description: DNS-Name der TEST-Instanz.
+security:
+- mutualTLS: []
+tags:
+- name: Abfrage
+  description: Gezielter Abruf eines Verzeichniseintrags.
+- name: Pflege
+  description: Anlage, vollständige Ersetzung, Override und Löschung eigener Einträge.
+paths:
+  /records/{providerId}/{apiId}/{majorVersion}:
+    parameters:
+    - $ref: '#/components/parameters/ProviderId'
+    - $ref: '#/components/parameters/ApiId'
+    - $ref: '#/components/parameters/MajorVersion'
+    get:
+      tags:
+      - Abfrage
+      operationId: getDirectoryRecord
+      summary: Verzeichniseintrag lesen
+      description: Jeder erfolgreich authentisierte EMT.API-Marktpartner darf jeden vorhandenen Verzeichniseintrag lesen.
+        allowedRoles steuert die Nutzung der beschriebenen fachlichen API, nicht die Sichtbarkeit des DirectoryRecord. Ein
+        optionaler If-None-Match ermöglicht 304 Not Modified.
+      parameters:
+      - $ref: '#/components/parameters/H2TransactionId'
+      - $ref: '#/components/parameters/H2InitialTransactionId'
+      - $ref: '#/components/parameters/H2MessageSender'
+      - $ref: '#/components/parameters/H2MessageSenderRole'
+      - $ref: '#/components/parameters/H2MessageReceiver'
+      - $ref: '#/components/parameters/H2MessageReceiverRole'
+      - $ref: '#/components/parameters/H2Signature'
+      - $ref: '#/components/parameters/H2Cert'
+      - $ref: '#/components/parameters/H2DigestEmptyBody'
+      - $ref: '#/components/parameters/BusinessProcessQuery'
+      - $ref: '#/components/parameters/IfNoneMatchGet'
+      responses:
+        '200':
+          $ref: '#/components/responses/RecordOk'
+        '304':
+          $ref: '#/components/responses/NotModified'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '405':
+          $ref: '#/components/responses/MethodNotAllowed'
+        '410':
+          $ref: '#/components/responses/Gone'
+        '429':
+          $ref: '#/components/responses/TooManyRequests'
+        '500':
+          $ref: '#/components/responses/InternalError'
+        '502':
+          $ref: '#/components/responses/BadGateway'
+        '503':
+          $ref: '#/components/responses/ServiceUnavailable'
+        '504':
+          $ref: '#/components/responses/GatewayTimeout'
+      x-h2-request-body: forbidden
+      x-h2-empty-body-digest: 47DEQpj8HBSa+/TImW+5JCeuQeRkm5NMpJWZG3hSuFU=
+      x-h2-processing-order:
+      - mTLS/certificate/JWS/digest/time-window/replay/authorization checks
+      - idempotency lookup for a retry
+      - read current record and evaluate optional If-None-Match
+    put:
+      tags:
+      - Pflege
+      operationId: putDirectoryRecord
+      summary: Eigenen Verzeichniseintrag anlegen oder vollständig ersetzen
+      description: 'Anlage mit If-None-Match: *. Änderung mit If-Match: "rev-<revision>". Genau eine der beiden Vorbedingungen
+        muss vorhanden sein. Ein unveränderter PUT liefert 200 OK mit aktuellem DirectoryRecord und unverändertem ETag; es
+        entstehen keine Revision, kein Outbox-Ereignis und keine WebSocket-Benachrichtigung. Bei If-Match auf einen nicht
+        vorhandenen Eintrag ist die Vorbedingung nicht erfüllt und 412 zurückzugeben; 404 wird für PUT nicht verwendet.'
+      parameters:
+      - $ref: '#/components/parameters/H2TransactionId'
+      - $ref: '#/components/parameters/H2InitialTransactionId'
+      - $ref: '#/components/parameters/H2MessageSender'
+      - $ref: '#/components/parameters/H2MessageSenderRole'
+      - $ref: '#/components/parameters/H2MessageReceiver'
+      - $ref: '#/components/parameters/H2MessageReceiverRole'
+      - $ref: '#/components/parameters/H2Signature'
+      - $ref: '#/components/parameters/H2Cert'
+      - $ref: '#/components/parameters/H2Digest'
+      - $ref: '#/components/parameters/BusinessProcessMaintenance'
+      - $ref: '#/components/parameters/IfMatchOptional'
+      - $ref: '#/components/parameters/IfNoneMatchCreate'
+      requestBody:
+        required: true
+        description: Vollständige marktpartnerseitig gepflegte Daten.
+        content:
+          application/json:
+            schema:
+              $ref: ../../schemas/v0.9/directory-record.schema.yaml#/$defs/DirectoryRecordWrite
+      responses:
+        '200':
+          $ref: '#/components/responses/RecordOk'
+        '201':
+          $ref: '#/components/responses/RecordCreated'
+        '409':
+          $ref: '#/components/responses/Conflict'
+        '412':
+          $ref: '#/components/responses/PreconditionFailed'
+        '415':
+          $ref: '#/components/responses/UnsupportedMediaType'
+        '422':
+          $ref: '#/components/responses/UnprocessableContent'
+        '428':
+          $ref: '#/components/responses/PreconditionRequired'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '405':
+          $ref: '#/components/responses/MethodNotAllowed'
+        '410':
+          $ref: '#/components/responses/Gone'
+        '429':
+          $ref: '#/components/responses/TooManyRequests'
+        '500':
+          $ref: '#/components/responses/InternalError'
+        '502':
+          $ref: '#/components/responses/BadGateway'
+        '503':
+          $ref: '#/components/responses/ServiceUnavailable'
+        '504':
+          $ref: '#/components/responses/GatewayTimeout'
+      x-h2-precondition:
+        oneOf:
+        - requiredHeader: If-None-Match
+          value: '*'
+          meaning: create
+        - requiredHeader: If-Match
+          pattern: ^"rev-[0-9]+"$
+          meaning: replace
+        mutuallyExclusive: true
+        bothPresentStatus: 400
+        neitherPresentStatus: 428
+        invalidSyntaxStatus: 400
+        conditionNotMetStatus: 412
+      x-h2-processing-order:
+      - mTLS/certificate/JWS/digest/time-window/replay/authorization checks
+      - effective transaction ID and idempotency lookup
+      - return stored identical result or reject different fingerprint with 409
+      - evaluate If-Match/If-None-Match against current state for first execution
+      - validate semantics and execute atomically
+      - commit revision/audit/result/outbox before visibility
+    patch:
+      tags:
+      - Pflege
+      operationId: patchManualOverride
+      summary: Manuellen Betriebsstatus-Override setzen oder aufheben
+      description: PATCH ist in Version 1 ausschließlich für ManualOverrideRequest vorgesehen. Eine geplante Wartung mit zukünftigem
+        maintenanceWindow.start wird als scheduled gespeichert; der aktuelle operationalStatus bleibt bis zum Start unverändert,
+        sofern nicht ein zuvor aktiver Override ersetzt und dessen Wirkung aufgehoben wird. Liegt start bereits vor oder auf
+        der aktuellen Serverzeit und end in der Zukunft, wird der Override unmittelbar active. Zum Start wird ein scheduled
+        Override aktiviert, zum Ende automatisch beendet. action=clear ohne vorhandenen geplanten oder aktiven Override ist
+        ein No-op mit 200 OK, unverändertem ETag und ohne Benachrichtigung. Ist der Eintrag nicht vorhanden, ist If-Match
+        nicht erfüllt und 412 zurückzugeben; 404 wird für PATCH nicht verwendet.
+      parameters:
+      - $ref: '#/components/parameters/H2TransactionId'
+      - $ref: '#/components/parameters/H2InitialTransactionId'
+      - $ref: '#/components/parameters/H2MessageSender'
+      - $ref: '#/components/parameters/H2MessageSenderRole'
+      - $ref: '#/components/parameters/H2MessageReceiver'
+      - $ref: '#/components/parameters/H2MessageReceiverRole'
+      - $ref: '#/components/parameters/H2Signature'
+      - $ref: '#/components/parameters/H2Cert'
+      - $ref: '#/components/parameters/H2Digest'
+      - $ref: '#/components/parameters/BusinessProcessMaintenance'
+      - $ref: '#/components/parameters/IfMatchRequired'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: ../../schemas/v0.9/directory-record.schema.yaml#/$defs/ManualOverrideRequest
+      responses:
+        '200':
+          $ref: '#/components/responses/RecordOk'
+        '409':
+          $ref: '#/components/responses/Conflict'
+        '412':
+          $ref: '#/components/responses/PreconditionFailed'
+        '415':
+          $ref: '#/components/responses/UnsupportedMediaType'
+        '422':
+          $ref: '#/components/responses/UnprocessableContent'
+        '428':
+          $ref: '#/components/responses/PreconditionRequired'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '405':
+          $ref: '#/components/responses/MethodNotAllowed'
+        '410':
+          $ref: '#/components/responses/Gone'
+        '429':
+          $ref: '#/components/responses/TooManyRequests'
+        '500':
+          $ref: '#/components/responses/InternalError'
+        '502':
+          $ref: '#/components/responses/BadGateway'
+        '503':
+          $ref: '#/components/responses/ServiceUnavailable'
+        '504':
+          $ref: '#/components/responses/GatewayTimeout'
+      x-h2-processing-order:
+      - mTLS/certificate/JWS/digest/time-window/replay/authorization checks
+      - effective transaction ID and idempotency lookup
+      - return stored identical result or reject different fingerprint with 409
+      - evaluate If-Match/If-None-Match against current state for first execution
+      - validate semantics and execute atomically
+      - commit revision/audit/result/outbox before visibility
+    delete:
+      tags:
+      - Pflege
+      operationId: deleteDirectoryRecord
+      summary: Eigenen Verzeichniseintrag löschen
+      description: Löscht den Eintrag aus dem operativen Verzeichnis, sofern keine fachlichen, regulatorischen, technischen
+        oder revisionsbezogenen Gründe entgegenstehen. Erfolgreich mit 200 OK und signiertem DirectoryRecordDeletionResult;
+        204 No Content wird nicht verwendet. Ist der Eintrag nicht vorhanden, ist If-Match nicht erfüllt und 412 zurückzugeben;
+        404 wird für DELETE nicht verwendet.
+      parameters:
+      - $ref: '#/components/parameters/H2TransactionId'
+      - $ref: '#/components/parameters/H2InitialTransactionId'
+      - $ref: '#/components/parameters/H2MessageSender'
+      - $ref: '#/components/parameters/H2MessageSenderRole'
+      - $ref: '#/components/parameters/H2MessageReceiver'
+      - $ref: '#/components/parameters/H2MessageReceiverRole'
+      - $ref: '#/components/parameters/H2Signature'
+      - $ref: '#/components/parameters/H2Cert'
+      - $ref: '#/components/parameters/H2DigestEmptyBody'
+      - $ref: '#/components/parameters/BusinessProcessMaintenance'
+      - $ref: '#/components/parameters/IfMatchRequired'
+      responses:
+        '200':
+          $ref: '#/components/responses/DeletionOk'
+        '409':
+          $ref: '#/components/responses/Conflict'
+        '412':
+          $ref: '#/components/responses/PreconditionFailed'
+        '428':
+          $ref: '#/components/responses/PreconditionRequired'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '405':
+          $ref: '#/components/responses/MethodNotAllowed'
+        '410':
+          $ref: '#/components/responses/Gone'
+        '429':
+          $ref: '#/components/responses/TooManyRequests'
+        '500':
+          $ref: '#/components/responses/InternalError'
+        '502':
+          $ref: '#/components/responses/BadGateway'
+        '503':
+          $ref: '#/components/responses/ServiceUnavailable'
+        '504':
+          $ref: '#/components/responses/GatewayTimeout'
+      x-h2-request-body: forbidden
+      x-h2-empty-body-digest: 47DEQpj8HBSa+/TImW+5JCeuQeRkm5NMpJWZG3hSuFU=
+      x-h2-processing-order:
+      - mTLS/certificate/JWS/digest/time-window/replay/authorization checks
+      - effective transaction ID and idempotency lookup
+      - return stored identical result or reject different fingerprint with 409
+      - evaluate If-Match/If-None-Match against current state for first execution
+      - validate semantics and execute atomically
+      - commit revision/audit/result/outbox before visibility
+components:
+  securitySchemes:
+    mutualTLS:
+      type: mutualTLS
+      description: mTLS mit dem TLS-Zertifikat des gültigen EMT.API-Zertifikatstripels.
+  parameters:
+    ProviderId:
+      name: providerId
+      in: path
+      required: true
+      description: MP-ID des für den Verzeichniseintrag verantwortlichen Marktpartners.
+      schema:
+        type: string
+        pattern: ^[0-9]{13}$
+        description: 13-stellige numerische Marktpartner-ID.
+      example: '9910567800001'
+    ApiId:
+      name: apiId
+      in: path
+      required: true
+      description: API-Kennung gemäß API-Katalog.
+      schema:
+        type: string
+        pattern: ^H2API[0-9]{5}$
+        description: Marktweit eindeutige API-Kennung gemäß API-Katalog.
+      example: H2API00001
+    MajorVersion:
+      name: majorVersion
+      in: path
+      required: true
+      description: Hauptversion des fachlichen API-Webdienstes ohne Präfix v.
+      schema:
+        type: integer
+        minimum: 1
+        maximum: 2147483647
+        description: Hauptversion des fachlichen API-Webdienstes ohne Präfix v.
+      example: 1
+    H2TransactionId:
+      name: H2-Transaction-Id
+      in: header
+      required: true
+      description: UUID Version 7 des aktuellen Übertragungsversuchs.
+      schema:
+        type: string
+        format: uuid
+        pattern: ^[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$
+      example: 019f5a0f-9b00-7321-8123-456789abcdef
+    H2InitialTransactionId:
+      name: H2-Initial-Transaction-Id
+      in: header
+      required: false
+      description: 'Nur bei einem Retry: H2-Transaction-Id des erstmaligen Aufrufs. Bei einem Erstaufruf unzulässig.'
+      schema:
+        type: string
+        format: uuid
+        pattern: ^[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$
+    H2MessageSender:
+      name: H2-Message-Sender
+      in: header
+      required: true
+      description: MP-ID des fachlichen Absenders; bei einem direkten Aufruf zugleich technischer Signierer.
+      schema:
+        type: string
+        pattern: ^[0-9]{13}$
+      example: '9910567800001'
+    H2MessageSenderRole:
+      name: H2-Message-Sender-Role
+      in: header
+      required: true
+      description: Marktrolle des aufrufenden Marktpartners.
+      schema:
+        type: string
+        enum:
+        - HydrogenGridOperator
+        - HydrogenMarketAreaManager
+        - BalanceGroupResponsibleParty
+        - TransportCustomer
+        - DataHub
+        - StorageOperator
+      example: GridOperator
+    H2MessageReceiver:
+      name: H2-Message-Receiver
+      in: header
+      required: true
+      description: MP-ID des Data Hub als Empfänger der Kommunikationsstrecke.
+      schema:
+        type: string
+        pattern: ^[0-9]{13}$
+      example: '9910000000000'
+    H2MessageReceiverRole:
+      name: H2-Message-Receiver-Role
+      in: header
+      required: true
+      description: Fester Wert DataHub.
+      schema:
+        type: string
+        const: DataHub
+      example: DataHub
+    H2Signature:
+      name: H2-Signature
+      in: header
+      required: true
+      description: Detached JWS gemäß JWS-SPEC.
+      schema:
+        type: string
+        pattern: ^[A-Za-z0-9_-]+\.\.[A-Za-z0-9_-]+$
+        maxLength: 8192
+    H2Digest:
+      name: H2-Digest
+      in: header
+      required: true
+      description: Base64-kodierter SHA-256-Hash über JCS(data); bei einem Request ohne Body der Hash des leeren Oktettstroms.
+      schema:
+        type: string
+        minLength: 44
+        maxLength: 44
+        pattern: ^[A-Za-z0-9+/]{43}=$
+    H2DigestEmptyBody:
+      name: H2-Digest
+      in: header
+      required: true
+      description: Bei einem Request ohne Body der feste Base64-kodierte SHA-256-Hash des leeren Oktettstroms.
+      schema:
+        type: string
+        const: 47DEQpj8HBSa+/TImW+5JCeuQeRkm5NMpJWZG3hSuFU=
+      example: 47DEQpj8HBSa+/TImW+5JCeuQeRkm5NMpJWZG3hSuFU=
+    H2Cert:
+      name: H2-Cert
+      in: header
+      required: true
+      description: DER-kodiertes SIG-Zertifikat als RFC-9440 Byte Sequence Structured Field.
+      schema:
+        type: string
+        pattern: ^:[A-Za-z0-9+/]+={0,2}:$
+        maxLength: 16384
+    IfMatchRequired:
+      name: If-Match
+      in: header
+      required: true
+      description: Zuletzt gelesener starker ETag des Verzeichniseintrags.
+      schema:
+        type: string
+        pattern: ^"rev-[0-9]+"$
+      example: '"rev-17"'
+    IfMatchOptional:
+      name: If-Match
+      in: header
+      required: false
+      description: 'Bei einer Änderung: zuletzt gelesener starker ETag. Darf nicht zusammen mit If-None-Match übertragen werden.'
+      schema:
+        type: string
+        pattern: ^"rev-[0-9]+"$
+    IfNoneMatchCreate:
+      name: If-None-Match
+      in: header
+      required: false
+      description: Bei einer Anlage zwingend der feste Wert *; darf nicht zusammen mit If-Match übertragen werden.
+      schema:
+        type: string
+        const: '*'
+    IfNoneMatchGet:
+      name: If-None-Match
+      in: header
+      required: false
+      description: Optionaler starker ETag für einen bedingten GET.
+      schema:
+        type: string
+        pattern: ^"rev-[0-9]+"$
+    BusinessProcessQuery:
+      name: H2-Business-Process
+      in: header
+      required: true
+      description: Fester Geschäftsprozesswert für GET.
+      schema:
+        type: string
+        const: directoryRecordQuery
+      example: directoryRecordQuery
+    BusinessProcessMaintenance:
+      name: H2-Business-Process
+      in: header
+      required: true
+      description: Fester Geschäftsprozesswert für PUT, PATCH und DELETE.
+      schema:
+        type: string
+        const: directoryRecordMaintenance
+      example: directoryRecordMaintenance
+  headers:
+    H2TransactionId:
+      required: true
+      description: Neu erzeugte UUID Version 7 der Response.
+      schema:
+        type: string
+        format: uuid
+        pattern: ^[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$
+    H2ReferenceId:
+      required: true
+      description: Effektive Transaktions-ID des beantworteten Requests.
+      schema:
+        type: string
+        format: uuid
+        pattern: ^[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$
+    H2ApiVersion:
+      required: true
+      description: Vollqualifizierte Version der synchronen Verzeichnisdienst-API.
+      schema:
+        type: string
+        const: 1.0.0
+    H2Signature:
+      required: true
+      description: Detached JWS der fachlich relevanten Response.
+      schema:
+        type: string
+        pattern: ^[A-Za-z0-9_-]+\.\.[A-Za-z0-9_-]+$
+        maxLength: 8192
+    H2Digest:
+      required: true
+      description: Base64-kodierter SHA-256-Hash über JCS(data).
+      schema:
+        type: string
+        minLength: 44
+        maxLength: 44
+        pattern: ^[A-Za-z0-9+/]{43}=$
+    H2Cert:
+      required: true
+      description: DER-kodiertes SIG-Zertifikat als RFC-9440 Byte Sequence Structured Field.
+      schema:
+        type: string
+        pattern: ^:[A-Za-z0-9+/]+={0,2}:$
+        maxLength: 16384
+    ETag:
+      required: true
+      description: Starker Entity-Tag entsprechend der Revision.
+      schema:
+        type: string
+        pattern: ^"rev-[0-9]+"$
+      example: '"rev-17"'
+    RetryAfter:
+      required: false
+      description: Wartezeit oder HTTP-Datum gemäß RFC 9110.
+      schema:
+        oneOf:
+        - type: integer
+          minimum: 0
+        - type: string
+    Allow:
+      required: true
+      description: Zulässige Methoden für die Ressource.
+      schema:
+        type: string
+        const: GET, PUT, PATCH, DELETE
+  responses:
+    RecordOk:
+      description: Verzeichniseintrag erfolgreich gelesen oder geändert; fachlich relevant und signaturpflichtig.
+      headers:
+        H2-Transaction-Id:
+          $ref: '#/components/headers/H2TransactionId'
+        H2-Reference-Id:
+          $ref: '#/components/headers/H2ReferenceId'
+        H2-API-Version:
+          $ref: '#/components/headers/H2ApiVersion'
+        H2-Signature:
+          $ref: '#/components/headers/H2Signature'
+        H2-Digest:
+          $ref: '#/components/headers/H2Digest'
+        H2-Cert:
+          $ref: '#/components/headers/H2Cert'
+        ETag:
+          $ref: '#/components/headers/ETag'
+      content:
+        application/json:
+          schema:
+            $ref: ../../schemas/v0.9/directory-record.schema.yaml#/$defs/DirectoryRecord
+      x-h2-signature-required: true
+    RecordCreated:
+      description: Verzeichniseintrag angelegt; fachlich relevant und signaturpflichtig.
+      headers:
+        H2-Transaction-Id:
+          $ref: '#/components/headers/H2TransactionId'
+        H2-Reference-Id:
+          $ref: '#/components/headers/H2ReferenceId'
+        H2-API-Version:
+          $ref: '#/components/headers/H2ApiVersion'
+        H2-Signature:
+          $ref: '#/components/headers/H2Signature'
+        H2-Digest:
+          $ref: '#/components/headers/H2Digest'
+        H2-Cert:
+          $ref: '#/components/headers/H2Cert'
+        ETag:
+          $ref: '#/components/headers/ETag'
+      content:
+        application/json:
+          schema:
+            $ref: ../../schemas/v0.9/directory-record.schema.yaml#/$defs/DirectoryRecord
+      x-h2-signature-required: true
+    DeletionOk:
+      description: Verzeichniseintrag gelöscht; fachlich relevant und signaturpflichtig.
+      headers:
+        H2-Transaction-Id:
+          $ref: '#/components/headers/H2TransactionId'
+        H2-Reference-Id:
+          $ref: '#/components/headers/H2ReferenceId'
+        H2-API-Version:
+          $ref: '#/components/headers/H2ApiVersion'
+        H2-Signature:
+          $ref: '#/components/headers/H2Signature'
+        H2-Digest:
+          $ref: '#/components/headers/H2Digest'
+        H2-Cert:
+          $ref: '#/components/headers/H2Cert'
+      content:
+        application/json:
+          schema:
+            $ref: ../../schemas/v0.9/directory-record.schema.yaml#/$defs/DirectoryRecordDeletionResult
+      x-h2-signature-required: true
+    NotModified:
+      description: 'Bedingter GET: Eintrag unverändert. Kein Body und keine Inhaltsdatensignatur.'
+      headers:
+        ETag:
+          $ref: '#/components/headers/ETag'
+        H2-API-Version:
+          $ref: '#/components/headers/H2ApiVersion'
+      x-h2-signature-required: false
+    BadRequest:
+      description: Syntaktisch oder formal ungültige Anfrage; technisch und nicht signaturpflichtig.
+      headers:
+        H2-Transaction-Id:
+          $ref: '#/components/headers/H2TransactionId'
+        H2-Reference-Id:
+          $ref: '#/components/headers/H2ReferenceId'
+        H2-API-Version:
+          $ref: '#/components/headers/H2ApiVersion'
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorResponse'
+      x-h2-signature-required: false
+      x-h2-body-omitted-if-no-valid-transaction-id: true
+    Unauthorized:
+      description: Authentisierung auf Anwendungsebene fehlgeschlagen; technisch und nicht signaturpflichtig.
+      headers:
+        H2-Transaction-Id:
+          $ref: '#/components/headers/H2TransactionId'
+        H2-Reference-Id:
+          $ref: '#/components/headers/H2ReferenceId'
+        H2-API-Version:
+          $ref: '#/components/headers/H2ApiVersion'
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorResponse'
+      x-h2-signature-required: false
+    Forbidden:
+      description: Authentisiert, aber nicht berechtigt; technisch und nicht signaturpflichtig.
+      headers:
+        H2-Transaction-Id:
+          $ref: '#/components/headers/H2TransactionId'
+        H2-Reference-Id:
+          $ref: '#/components/headers/H2ReferenceId'
+        H2-API-Version:
+          $ref: '#/components/headers/H2ApiVersion'
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorResponse'
+      x-h2-signature-required: false
+    NotFound:
+      description: Kein Verzeichniseintrag für den syntaktisch gültigen Schlüssel; technisch und nicht signaturpflichtig.
+      headers:
+        H2-Transaction-Id:
+          $ref: '#/components/headers/H2TransactionId'
+        H2-Reference-Id:
+          $ref: '#/components/headers/H2ReferenceId'
+        H2-API-Version:
+          $ref: '#/components/headers/H2ApiVersion'
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorResponse'
+      x-h2-signature-required: false
+    MethodNotAllowed:
+      description: Methode für die Ressource nicht zulässig.
+      headers:
+        H2-Transaction-Id:
+          $ref: '#/components/headers/H2TransactionId'
+        H2-Reference-Id:
+          $ref: '#/components/headers/H2ReferenceId'
+        H2-API-Version:
+          $ref: '#/components/headers/H2ApiVersion'
+        Allow:
+          $ref: '#/components/headers/Allow'
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorResponse'
+      x-h2-signature-required: false
+    Gone:
+      description: Hauptversion der Verzeichnisdienst-Schnittstelle dauerhaft außer Betrieb.
+      headers:
+        H2-Transaction-Id:
+          $ref: '#/components/headers/H2TransactionId'
+        H2-Reference-Id:
+          $ref: '#/components/headers/H2ReferenceId'
+        H2-API-Version:
+          $ref: '#/components/headers/H2ApiVersion'
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorResponse'
+      x-h2-signature-required: false
+    Conflict:
+      description: 409 Conflict. IDEMPOTENCY_CONFLICT ist technisch und unsigniert. DELETION_CONFLICT ist eine fachliche Ablehnung
+        und wird signiert. Die Header H2-Signature, H2-Digest und H2-Cert sind nur im fachlichen Fall vorhanden.
+      headers:
+        H2-Transaction-Id:
+          $ref: '#/components/headers/H2TransactionId'
+        H2-Reference-Id:
+          $ref: '#/components/headers/H2ReferenceId'
+        H2-API-Version:
+          $ref: '#/components/headers/H2ApiVersion'
+        H2-Signature:
+          description: Nur bei fachlicher Ablehnung.
+          schema:
+            type: string
+            pattern: ^[A-Za-z0-9_-]+\.\.[A-Za-z0-9_-]+$
+            maxLength: 8192
+        H2-Digest:
+          description: Nur bei fachlicher Ablehnung.
+          schema:
+            type: string
+            minLength: 44
+            maxLength: 44
+            pattern: ^[A-Za-z0-9+/]{43}=$
+        H2-Cert:
+          description: Nur bei fachlicher Ablehnung.
+          schema:
+            type: string
+            pattern: ^:[A-Za-z0-9+/]+={0,2}:$
+            maxLength: 16384
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorResponse'
+      x-h2-signature-condition:
+        IDEMPOTENCY_CONFLICT: false
+        DELETION_CONFLICT: true
+    PreconditionFailed:
+      description: If-Match oder If-None-Match nicht erfüllt; technisch und nicht signaturpflichtig. Dies umfasst If-Match
+        gegen einen nicht vorhandenen Eintrag.
+      headers:
+        H2-Transaction-Id:
+          $ref: '#/components/headers/H2TransactionId'
+        H2-Reference-Id:
+          $ref: '#/components/headers/H2ReferenceId'
+        H2-API-Version:
+          $ref: '#/components/headers/H2ApiVersion'
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorResponse'
+      x-h2-signature-required: false
+    UnsupportedMediaType:
+      description: Nicht unterstützter Medientyp; technisch und nicht signaturpflichtig.
+      headers:
+        H2-Transaction-Id:
+          $ref: '#/components/headers/H2TransactionId'
+        H2-Reference-Id:
+          $ref: '#/components/headers/H2ReferenceId'
+        H2-API-Version:
+          $ref: '#/components/headers/H2ApiVersion'
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorResponse'
+      x-h2-signature-required: false
+    UnprocessableContent:
+      description: Schema- oder fachlich-semantische Validierung fehlgeschlagen; fachlich relevant und signaturpflichtig.
+      headers:
+        H2-Transaction-Id:
+          $ref: '#/components/headers/H2TransactionId'
+        H2-Reference-Id:
+          $ref: '#/components/headers/H2ReferenceId'
+        H2-API-Version:
+          $ref: '#/components/headers/H2ApiVersion'
+        H2-Signature:
+          $ref: '#/components/headers/H2Signature'
+        H2-Digest:
+          $ref: '#/components/headers/H2Digest'
+        H2-Cert:
+          $ref: '#/components/headers/H2Cert'
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorResponse'
+      x-h2-signature-required: true
+    PreconditionRequired:
+      description: Erforderliches If-Match oder If-None-Match fehlt; technisch und nicht signaturpflichtig.
+      headers:
+        H2-Transaction-Id:
+          $ref: '#/components/headers/H2TransactionId'
+        H2-Reference-Id:
+          $ref: '#/components/headers/H2ReferenceId'
+        H2-API-Version:
+          $ref: '#/components/headers/H2ApiVersion'
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorResponse'
+      x-h2-signature-required: false
+    TooManyRequests:
+      description: Rate oder Anzahl gleichzeitiger Requests überschritten; technisch und nicht signaturpflichtig.
+      headers:
+        H2-Transaction-Id:
+          $ref: '#/components/headers/H2TransactionId'
+        H2-Reference-Id:
+          $ref: '#/components/headers/H2ReferenceId'
+        H2-API-Version:
+          $ref: '#/components/headers/H2ApiVersion'
+        Retry-After:
+          $ref: '#/components/headers/RetryAfter'
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorResponse'
+      x-h2-signature-required: false
+    InternalError:
+      description: Unerwarteter interner Fehler; technisch und nicht signaturpflichtig.
+      headers:
+        H2-Transaction-Id:
+          $ref: '#/components/headers/H2TransactionId'
+        H2-Reference-Id:
+          $ref: '#/components/headers/H2ReferenceId'
+        H2-API-Version:
+          $ref: '#/components/headers/H2ApiVersion'
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorResponse'
+      x-h2-signature-required: false
+    BadGateway:
+      description: Ungültige Antwort einer abhängigen Komponente; technisch und nicht signaturpflichtig.
+      headers:
+        H2-Transaction-Id:
+          $ref: '#/components/headers/H2TransactionId'
+        H2-Reference-Id:
+          $ref: '#/components/headers/H2ReferenceId'
+        H2-API-Version:
+          $ref: '#/components/headers/H2ApiVersion'
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorResponse'
+      x-h2-signature-required: false
+    ServiceUnavailable:
+      description: Vorübergehend nicht verfügbar, überlastet oder Replay-/Idempotenzprüfung nicht verlässlich; technisch und
+        nicht signaturpflichtig.
+      headers:
+        H2-Transaction-Id:
+          $ref: '#/components/headers/H2TransactionId'
+        H2-Reference-Id:
+          $ref: '#/components/headers/H2ReferenceId'
+        H2-API-Version:
+          $ref: '#/components/headers/H2ApiVersion'
+        Retry-After:
+          $ref: '#/components/headers/RetryAfter'
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorResponse'
+      x-h2-signature-required: false
+    GatewayTimeout:
+      description: Timeout einer abhängigen Komponente; technisch und nicht signaturpflichtig.
+      headers:
+        H2-Transaction-Id:
+          $ref: '#/components/headers/H2TransactionId'
+        H2-Reference-Id:
+          $ref: '#/components/headers/H2ReferenceId'
+        H2-API-Version:
+          $ref: '#/components/headers/H2ApiVersion'
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorResponse'
+      x-h2-signature-required: false
+  schemas:
+    DirectoryRecord:
+      $ref: ../../schemas/v0.9/directory-record.schema.yaml#/$defs/DirectoryRecord
+    DirectoryRecordWrite:
+      $ref: ../../schemas/v0.9/directory-record.schema.yaml#/$defs/DirectoryRecordWrite
+    ManualOverrideRequest:
+      $ref: ../../schemas/v0.9/directory-record.schema.yaml#/$defs/ManualOverrideRequest
+    DirectoryRecordDeletionResult:
+      $ref: ../../schemas/v0.9/directory-record.schema.yaml#/$defs/DirectoryRecordDeletionResult
+    ErrorResponse:
+      type: object
+      additionalProperties: true
+      required:
+      - code
+      - title
+      - transactionId
+      properties:
+        code:
+          type: string
+          pattern: ^[A-Z][A-Z0-9_]{2,63}$
+        title:
+          type: string
+          minLength: 1
+          maxLength: 256
+        detail:
+          type: string
+          maxLength: 2048
+        transactionId:
+          type: string
+          format: uuid
+          pattern: ^[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$
+x-h2-environment-isolation:
+  recordKeyScope: providerId/apiId/majorVersion ist je Umgebung eindeutig.
+  independentState:
+  - DirectoryRecord
+  - revision
+  - monitoringState
+  - idempotencyState
+  - audit
+  - outbox
+  environmentFieldInRecord: false
+  targetUrlRule: targetUrl MUSS einen Endpunkt derselben Umgebung bezeichnen.
+  crossEnvironmentProcessing: forbidden
+x-h2-catalog-validation:
+  governanceFields:
+  - serviceName
+  - serviceDescription
+  - lifecycleStatus
+  - deprecatedSince
+  - sunsetAt
+  - replacement
+  source: API-Katalog der jeweiligen Umgebung
+  writeRule: API-ID und majorVersion müssen freigegeben sein; allowedRoles, capabilities und supportedHttpMethods müssen zulässige
+    Teilmengen sein.
+  failureStatus: 422
+x-h2-status-resolution:
+  effectiveStatusPriority:
+  - lifecycleRetired
+  - activeManualOverride
+  - automaticOrInitialBaseStatus
+  scheduledOverrideEffective: false
+  monitoringDuringActiveOverride: Monitoring wird weitergeführt; es ändert den wirksamen Status nicht, liefert aber die Grundlage
+    für die Neubewertung nach Ende des Overrides.
+  internalState: Die Implementierung MUSS den ohne aktiven Override maßgeblichen Basisstatus und seine Metadaten deterministisch
+    rekonstruieren können; hierfür ist kein zusätzliches öffentliches DirectoryRecord-Feld vorgeschrieben.
+x-h2-forbidden-public-request-headers:
+- H2-Forwarded-By
+x-h2-signature-profile:
+  request: Alle fachlichen HTTP-Requests sind gemäß JWS-SPEC signaturpflichtig.
+  response: Fachlich relevante JSON-Responses sind signaturpflichtig; technische Responses bleiben unsigniert.
+  jwsSpecification: JWS-Inhaltsdatensicherung für API-Webdienste, Version 1.0
+x-h2-authorization:
+  read: Jeder erfolgreich authentisierte EMT.API-Marktpartner darf jeden DirectoryRecord lesen.
+  write: PUT, PATCH und DELETE ausschließlich für die eigene providerId.
+  governance: Governance-Änderungen sind interne Data-Hub-Prozesse und nicht Teil der öffentlichen OpenAPI.
+x-h2-idempotency:
+  key:
+  - H2-Message-Sender
+  - effectiveTransactionId
+  effectiveTransactionId:
+    initialRequest: H2-Transaction-Id
+    retry: H2-Initial-Transaction-Id
+  fingerprintMinimum:
+  - H2-Message-Receiver
+  - H2-Business-Process
+  - HTTP method
+  - normalized URI including query
+  - JCS request-body hash
+  - presence and value of If-Match
+  - presence and value of If-None-Match
+  processingOrder: after security/replay checks, before current ETag/precondition and business processing
+  identicalRetry: return stored result; do not re-evaluate current ETag; do not execute again
+  differentFingerprint: 409 IDEMPOTENCY_CONFLICT
+  retentionSeconds: 86400
+x-h2-operational-parameters:
+  clientTimeoutSeconds: 30
+  maxAttemptsTotal: 5
+  maxRetries: 4
+  backoffSeconds:
+  - 1
+  - 2
+  - 4
+  - 8
+  jitterPercent:
+  - 0
+  - 50
+  retryAfter: Ein längerer gültiger Retry-After-Wert hat Vorrang.
+  automaticRetryOn:
+  - transportError
+  - missingOrUnusableResponse
+  - 429
+  - 500
+  - 502
+  - 503
+  - 504
+  noAutomaticRetryOn:
+  - other4xx
+  idempotencyRetentionHours: 24
+  maxConcurrentRequestsPerMarketPartnerAndEnvironment: 20
+  maxRequestsPer60SecondsPerMarketPartnerAndEnvironment: 600
+  limitResponse: 429
+  systemOverloadResponse: 503
+  maxDirectoryRecordUtf8Bytes: 921600
+x-h2-error-codes:
+  INVALID_REQUEST: 400
+  INVALID_PATH_PARAMETER: 400
+  INVALID_BUSINESS_PROCESS: 400
+  INVALID_SIGNATURE: 401
+  UNAUTHORIZED: 401
+  FORBIDDEN: 403
+  RECORD_NOT_FOUND: 404
+  METHOD_NOT_ALLOWED: 405
+  IDEMPOTENCY_CONFLICT: 409
+  DELETION_CONFLICT: 409
+  PRECONDITION_FAILED: 412
+  UNSUPPORTED_MEDIA_TYPE: 415
+  SCHEMA_VALIDATION_FAILED: 422
+  SEMANTIC_VALIDATION_FAILED: 422
+  PRECONDITION_REQUIRED: 428
+  RATE_LIMIT_EXCEEDED: 429
+  INTERNAL_ERROR: 500
+  BAD_GATEWAY: 502
+  SERVICE_UNAVAILABLE: 503
+  GATEWAY_TIMEOUT: 504
+externalDocs:
+  description: Technische Datenspezifikation des Verzeichnisdienstes [DIR-SPEC].
+  url: urn:h2:directory:spec:v1
+x-h2-source-documents:
+  apiGuideline:
+    file: API_Guideline_v1_0(5).docx
+    sha256: dd3b7451d227dc6952f80458ab3b49b3dcc7fba9964cbde6438c7ccce9e9ed1a
+  jwsSpecification:
+    file: JWS-Inhaltsdatensicherung_für_API-Webdienste(7).docx
+    sha256: 2b85b48f77e073d6a0325fd85ca318f77c6e033b64b699a50d4504df3828b5be
+  webSocketSpecification:
+    file: WebSocket_Verzeichnisdienst_Schnittstellenbeschreibung(6).docx
+    sha256: 673d2e92e648df1f018958538517f8fe9f44431bbc9d56949e91cc457c0eee10
+  directoryRecordSpecification:
+    id: urn:h2:directory:spec:v1
+x-h2-business-process-values:
+  GET: directoryRecordQuery
+  PUT: directoryRecordMaintenance
+  PATCH: directoryRecordMaintenance
+  DELETE: directoryRecordMaintenance
+x-h2-operational-profile:
+  clientTimeoutSeconds: 30
+  maxAttemptsTotal: 5
+  retryDelaysSeconds:
+  - 1
+  - 2
+  - 4
+  - 8
+  retryJitterPercent: 0-50
+  retryAfter: Ein längerer gültiger Retry-After-Wert hat Vorrang.
+  automaticRetryOn:
+  - transportError
+  - missingOrUnusableResponse
+  - 429
+  - 500
+  - 502
+  - 503
+  - 504
+  noAutomaticRetryOn:
+  - other4xx
+  idempotencyRetentionSeconds: 86400
+  maxConcurrentRequestsPerProviderAndEnvironment: 20
+  maxRequestsPer60SecondsPerProviderAndEnvironment: 600
+  limitResponse: 429
+  systemOverloadResponse: 503
+x-h2-no-op:
+  unchangedPut: 200 with unchanged DirectoryRecord and ETag; no revision/outbox/notification
+  clearWithoutOverride: 200 with unchanged DirectoryRecord and ETag; no revision/outbox/notification
+  technicalLogging: request and idempotency result remain logged
+x-h2-record-signature: forbidden-in-v1; HTTP message signatures remain mandatory according to JWS-SPEC
+x-h2-forbidden-request-headers:
+- H2-Forwarded-By on initial client requests
+- H2-API-Version is ignored in requests
