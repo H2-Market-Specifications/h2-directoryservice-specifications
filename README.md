@@ -1,8 +1,5 @@
 # H2 Directory Service Specifications v0.9
 
-## H₂-Verzeichnisdienst: Directory Service und DirectoryRecord (Deutsch)
-
-Dieses Repository veröffentlicht die Spezifikation des zentralen Verzeichnisdienstes für die Wasserstoffmarktkommunikation (H₂) in Deutschland. Sie beschreibt DirectoryRecords, Datenmodell und Datenhoheit sowie die synchronen HTTP-Schnittstellen und die WebSocket-Kommunikation. Enthalten sind die DirectoryRecord-Spezifikation als PDF sowie OpenAPI-, AsyncAPI- und JSON-/YAML-Schemas für Marktteilnehmer, Softwareanbieter und Entwickler. Veröffentlichte Dokument- und Bundle-Version: 0.9.
 
 Documentation and machine-readable specifications for the central hydrogen market directory service. These materials are intended for market participants, software providers and developers implementing directory record queries, maintenance and WebSocket communication.
 
